@@ -1,0 +1,44 @@
+<!doctype html>
+<html>
+  <body>
+    <h3>Weekly Git Commit Counter 설정</h3>
+    <label>GitLab Token <input id="gitlabToken"></label><br/>
+    <label>Repos(,로 구분) <input id="repos"></label><br/>
+    <label>Apps Script URL <input id="appsScriptUrl" size="60"></label><br/>
+    <label>Spreadsheet ID <input id="spreadsheetId"></label><br/>
+    <label>Sheet Name <input id="sheetName" value="주간 Git 현황"></label><br/>
+    <label>Header Row <input id="headerRow" type="number" value="6"></label><br/>
+    <label>Name Col(1-based) <input id="nameCol" type="number" value="2"></label><br/>
+    <textarea id="memberMap" rows="8" cols="60" placeholder='{"김OO":{"emails":["kim@x.com"],"names":["Kim OO"]}}'></textarea><br/>
+    <button id="save">저장</button>
+    <script>
+      chrome.storage.sync.get(
+        ["gitlabToken","gitlabDomain","repos","appsScriptUrl","sheet","memberMap"],
+        (v) => {
+          gitlabToken.value = v.gitlabToken || "";
+          repos.value = (v.repos || []).join(",");
+          appsScriptUrl.value = v.appsScriptUrl || "";
+          spreadsheetId.value = v.sheet?.spreadsheetId || "";
+          sheetName.value = v.sheet?.sheetName || "주간 Git 현황";
+          headerRow.value = v.sheet?.headerRow || 6;
+          nameCol.value = v.sheet?.nameCol || 2;
+          memberMap.value = JSON.stringify(v.memberMap || {}, null, 2);
+        }
+      );
+      save.onclick = () => {
+        chrome.storage.sync.set({
+          gitlabToken: gitlabToken.value.trim(),
+          repos: repos.value.split(",").map(s=>s.trim()).filter(Boolean),
+          appsScriptUrl: appsScriptUrl.value.trim(),
+          sheet: {
+            spreadsheetId: spreadsheetId.value.trim(),
+            sheetName: sheetName.value.trim(),
+            headerRow: parseInt(headerRow.value,10),
+            nameCol: parseInt(nameCol.value,10)
+          },
+          memberMap: JSON.parse(memberMap.value || "{}")
+        }, ()=> alert("저장됨"));
+      };
+    </script>
+  </body>
+</html>
