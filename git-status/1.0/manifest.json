@@ -10,6 +10,7 @@
     ],
     "host_permissions": [
         "https://lab.ssafy.com/*",
+        "https://*.lab.ssafy.com/*",
         "https://gitlab.com/*",
         "https://*.gitlab.com/*",
         "https://script.google.com/*",
@@ -17,9 +18,7 @@
         "https://docs.google.com/*",
         "https://docs.googleusercontent.com/*"
     ],
-    "background": {
-        "service_worker": "background.js"
-    },
+    "background": { "service_worker": "background.js", "type": "module" },
     "content_scripts": [
         {
             "matches": [
@@ -28,7 +27,7 @@
             "js": [
                 "content.js"
             ],
-            "run_at": "document_idle"
+            "run_at": "document_end"
         }
     ],
     "action": {
