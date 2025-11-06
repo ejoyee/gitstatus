@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "주간 Git 현황 체크",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "description": "구글시트(주간 Git 현황)에서 버튼 클릭 시 GitLab 커밋을 집계해 시트를 채웁니다.",
     "permissions": [
         "storage",

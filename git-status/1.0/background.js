@@ -9,6 +9,55 @@ self.addEventListener('error', e => {
   console.error('[GitCheck][bg] error', e.message, e.error);
 });
 
+// === Alias 매핑 유틸 ===
+// cfg.memberMap: { "공식이름": { names: ["별칭1", ...], emails: [...], team?: string } }
+// cfg.studentCache?.officialNames: ["공식이름", ...]
+// === Alias 매핑 유틸 (이메일 보강 버전) ===
+// memberMap: { "공식이름": { team?: string, names?: string[], emails?: string[] } }
+// officialNames: ["공식이름", ...]
+
+const normName = s => String(s || '').trim().toLowerCase();
+
+function buildAliasIndex(memberMap = {}, officialNames = []) {
+  const nameIdx = new Map();
+  const emailIdx = new Map();
+
+  (officialNames || []).forEach(n => {
+    const k = String(n || '').trim();
+    if (k) { nameIdx.set(k, k); nameIdx.set(normName(k), k); }
+  });
+
+  for (const [canonical, v] of Object.entries(memberMap || {})) {
+    const can = String(canonical || '').trim();
+    if (!can) continue;
+    nameIdx.set(can, can);
+    nameIdx.set(normName(can), can);
+
+    (v?.names || []).forEach(a => {
+      const key = String(a || '').trim();
+      if (key) { nameIdx.set(key, can); nameIdx.set(normName(key), can); }
+    });
+    (v?.emails || []).forEach(e => {
+      const em = String(e || '').trim().toLowerCase();
+      if (em) emailIdx.set(em, can);
+    });
+  }
+  return { nameIdx, emailIdx };
+}
+
+function canonicalizeName(authorName, authorEmail, aliasIdx) {
+  const rawName = String(authorName || '').trim();
+  const lowName = rawName.toLowerCase();
+  const lowEmail = String(authorEmail || '').trim().toLowerCase();
+
+  if (rawName && aliasIdx?.nameIdx?.has(rawName)) return aliasIdx.nameIdx.get(rawName);
+  if (lowName && aliasIdx?.nameIdx?.has(lowName)) return aliasIdx.nameIdx.get(lowName);
+  if (lowEmail && aliasIdx?.emailIdx?.has(lowEmail)) return aliasIdx.emailIdx.get(lowEmail);
+  return rawName || '(unknown)';
+}
+
+
+
 // ===== 설정 로드 =====
 function getConfig() {
   return new Promise((resolve) => {
@@ -21,7 +70,8 @@ function getConfig() {
         appsScriptUrl: '',
         sheet: { spreadsheetId: '', sheetName: '주간 Git 현황', headerRow: 6, nameCol: 3 },
         days: 14,
-        timezoneOffsetMinutes: 9 * 60
+        timezoneOffsetMinutes: 9 * 60,
+        studentCache: null
       },
       async (cfg) => {
         const loc = await chrome.storage.local.get({ gitlabToken: '' });
@@ -135,45 +185,30 @@ async function collectCommits(projectId, cfg) {
 }
 
 // ===== 집계 =====
-function aggregateByDateAndMember(commits, cfg, memberMap) {
-  const counts = {}; // counts[name][yyyy-mm-dd] = n
-  const hasMap = memberMap && Object.keys(memberMap).length > 0;
+function aggregateByDateAndMember(commits, cfg) {
+  const counts = {}; // counts[canonical][yyyy-mm-dd] = n
+  const aliasIdx = buildAliasIndex(
+    cfg.memberMap || {},
+    cfg.studentCache?.officialNames || []
+  );
 
-  log('aggregate start', { commits: commits.length, hasMap });
+  log('aggregate start', {
+    commits: commits.length,
+    nameMapSize: aliasIdx.nameIdx?.size || 0,
+    emailMapSize: aliasIdx.emailIdx?.size || 0
+  });
+
 
   for (const c of commits) {
     const dt = new Date(c.created_at);
     dt.setMinutes(dt.getMinutes() + cfg.timezoneOffsetMinutes);
     const day = dt.toISOString().split('T')[0];
 
-    const email = (c.author_email || '').toLowerCase();
-    const author = (c.author_name || '').trim() || '(unknown)';
-
-    if (!hasMap) {
-      // 매핑이 없으면 author_name 그대로 사용
-      (counts[author] ??= {}), (counts[author][day] = (counts[author][day] || 0) + 1);
-      continue;
-    }
-
-    // 매핑이 있으면 매핑 우선
-    let matched = false;
-    for (const name of Object.keys(memberMap)) {
-      const m = memberMap[name] || {};
-      const emailMatch = (m.emails || []).some(e => e.toLowerCase() === email);
-      const nameMatch = (m.names || []).some(n => n === author);
-      if (emailMatch || nameMatch || name === author) {
-        (counts[name] ??= {}), (counts[name][day] = (counts[name][day] || 0) + 1);
-        matched = true;
-        break;
-      }
-    }
-    if (!matched) {
-      // 미매칭도 별도 키로 남겨서 나중에 시트에서 확인 가능
-      const key = `미매칭:${author} <${email}>`;
-      (counts[key] ??= {}), (counts[key][day] = (counts[key][day] || 0) + 1);
-    }
+    const canonical = canonicalizeName(c.author_name, c.author_email, aliasIdx);
+    (counts[canonical] ??= {});
+    counts[canonical][day] = (counts[canonical][day] || 0) + 1;
   }
-  // 요약 로그
+
   const names = Object.keys(counts);
   log('aggregate done', {
     memberCount: names.length,
@@ -182,7 +217,7 @@ function aggregateByDateAndMember(commits, cfg, memberMap) {
   return counts;
 }
 
-// ===== 메시지 수신 =====
+
 // ===== 메시지 수신 =====
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type !== 'RUN_COLLECT_AND_WRITE') return;
@@ -216,37 +251,67 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
       log('all repos collected', { totalCommits: allCommits.length });
 
-      const counts = aggregateByDateAndMember(allCommits, cfg, cfg.memberMap || {});
-
-      // [NEW] 사람별 원본 커밋(커밋ID 기준 '사람 내부에서만' 중복 제거) 요약 만들기
-      // team은 있으면 memberMap에서 끌어오고, 없으면 빈 문자열
-      const perPerson = {}; // { name: { team:'', ids:Set, list:[{id,title,date,repo}] } }
+      /** ★ 전역 dedup(레포 간 중복 제거)
+       *  - 프로젝트(레포) 내부 dedup는 collectCommits에서 했고,
+       *  - 여기서는 여러 레포를 합친 allCommits 사이에서 같은 commitId를 한 번 더 제거합니다.
+       */
+      const seen = new Set();
+      const uniqueCommits = [];
       for (const c of allCommits) {
-        const name = (c.author_name || '(unknown)').trim();
-        const info = (cfg.memberMap && cfg.memberMap[name]) || {};
-        if (!perPerson[name]) perPerson[name] = { team: info.team || '', ids: new Set(), list: [] };
+        if (!c?.id) continue;
+        if (seen.has(c.id)) continue;
+        seen.add(c.id);
+        uniqueCommits.push(c);
+      }
+      log('dedup across repos', { before: allCommits.length, after: uniqueCommits.length });
 
-        if (!perPerson[name].ids.has(c.id)) {           // 사람 내부에서만 중복 제거
-          perPerson[name].ids.add(c.id);
-          perPerson[name].list.push({
-            id: c.id,
-            title: c.title,
-            date: (c.created_at || '').slice(0, 10),
-            repo: c.repo || ''
+      const counts = aggregateByDateAndMember(uniqueCommits, cfg);
+
+      // === 사람별 원본 커밋 요약(사람 내부 중복 제거 + 날짜 정렬 + 팀정보) ===
+      const aliasIdx = buildAliasIndex(cfg.memberMap || {}, cfg.studentCache?.officialNames || []);
+      const perPerson = {}; // { canonical: { team:'', ids:Set, list:[{id,title,date,repo}] } }
+      const teamsByName = (cfg.studentCache && cfg.studentCache.teamsByName) || {};
+
+      for (const c of uniqueCommits) {
+        const canonical = canonicalizeName(c.author_name, c.author_email, aliasIdx);
+        const teamFromMemberMap = (cfg.memberMap?.[canonical]?.team) || '';
+        const team = teamFromMemberMap || teamsByName[canonical] || '';  // ✅ 보강
+
+        if (!perPerson[canonical]) perPerson[canonical] = { team, ids: new Set(), list: [] };
+        // team을 최초 세팅 시점에 넣고, 이미 객체가 있다면 비어있을 때만 채움
+        if (!perPerson[canonical].team && team) perPerson[canonical].team = team;
+
+        const id = c.id;
+        if (!id || perPerson[canonical].ids.has(id)) continue;
+        perPerson[canonical].ids.add(id);
+        perPerson[canonical].list.push({
+          id,
+          title: c.title,
+          date: (c.created_at || '').slice(0, 10),
+          repo: c.repo || ''
+        });
+
+        // (선택) 팀 디버깅: 여전히 팀이 없으면 경고
+        if (!team) {
+          warn('team missing for', canonical, {
+            hasMemberKey: !!cfg.memberMap?.[canonical],
+            byName: c.author_name,
+            byEmail: (c.author_email || '').toLowerCase()
           });
         }
       }
 
-      // [NEW] summary(팀,이름,개수) + 상세(list 일부 미리보기) 생성
-      const summary = Object.entries(perPerson).map(([name, v]) => ({
-        team: v.team || '',
-        name,
-        count: v.ids.size
-      })).sort((a, b) =>
-          (a.team||'').localeCompare(b.team||'') || a.name.localeCompare(b.name)
-      );
+      // 날짜 오름차순 정렬 (필요하면 b-a로 내림차순 바꿔)
+      for (const k of Object.keys(perPerson)) {
+        perPerson[k].list.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+      }
 
-      // [NEW] 메시지 페이로드가 너무 커지는 것 방지: 미리보기는 최대 20개만
+      // summary 재계산 (list.length 사용)
+      const summary = Object.entries(perPerson)
+        .map(([name, v]) => ({ team: v.team || '', name, count: v.list.length }))
+        .sort((a, b) => (a.team || '').localeCompare(b.team || '') || a.name.localeCompare(b.name));
+
+      // 미리보기(최대 20개)
       const previewDetail = {};
       for (const [name, v] of Object.entries(perPerson)) {
         previewDetail[name] = v.list.slice(0, 20);

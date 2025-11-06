@@ -12,7 +12,7 @@
   let lastSummary = null;       // [{team,name,count}, ...]
   let lastPreviewDetail = null; // { name: [{id,title,date,repo}, ...] }
 
-   // [ADD] 안전한 메시지 전송 유틸 (컨텍스트 끊김 방지용, 1회 재시도 + 안내)
+  // [ADD] 안전한 메시지 전송 유틸 (컨텍스트 끊김 방지용, 1회 재시도 + 안내)
   async function sendMessageSafe(msg) {
     // 확장프로그램 컨텍스트 존재 확인
     if (!chrome || !chrome.runtime || !chrome.runtime.id) {
@@ -36,6 +36,12 @@
       throw e;
     }
   }
+
+
+
+
+
+
 
   // ▼ 기존: 메인 실행 버튼
   const runBtn = document.createElement('button');
@@ -96,8 +102,8 @@
     `;
     const tbody = table.querySelector('tbody');
 
-    const rows = (summary || []).slice().sort((a,b) =>
-      (a.team||'').localeCompare(b.team||'') || a.name.localeCompare(b.name)
+    const rows = (summary || []).slice().sort((a, b) =>
+      (a.team || '').localeCompare(b.team || '') || a.name.localeCompare(b.name)
     );
     for (const row of rows) {
       const tr = document.createElement('tr');
@@ -107,26 +113,26 @@
         <td style="border-bottom:1px solid #f1f1f1;padding:6px 4px;text-align:right">${row.count}</td>
         <td style="border-bottom:1px solid #f1f1f1;padding:6px 4px">
           ${(previewDetail?.[row.name] || []).map(c =>
-            `<code style="background:#f6f8fa;padding:2px 4px;border-radius:4px;display:inline-block;margin:2px 4px 2px 0">${c.date} · ${c.repo} · ${c.title}</code>`
-          ).join('')}
+        `<code style="background:#f6f8fa;padding:2px 4px;border-radius:4px;display:inline-block;margin:2px 4px 2px 0">${c.date} · ${c.repo} · ${c.title}</code>`
+      ).join('')}
         </td>
       `;
       tbody.appendChild(tr);
     }
 
     function toCsv() {
-      const header = ['team','name','count'];
+      const header = ['team', 'name', 'count'];
       const lines = [header.join(',')];
       for (const r of rows) {
         const cells = [r.team || '', r.name, String(r.count)]
-          .map(s => `"${String(s).replaceAll('"','""')}"`);
+          .map(s => `"${String(s).replaceAll('"', '""')}"`);
         lines.push(cells.join(','));
       }
       const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `git-summary-${new Date().toISOString().slice(0,10)}.csv`;
+      a.download = `git-summary-${new Date().toISOString().slice(0, 10)}.csv`;
       a.click();
       URL.revokeObjectURL(url);
     }
@@ -166,14 +172,13 @@
     try {
       console.log('[GitCheck][content] ▶ RUN_COLLECT_AND_WRITE start');
 
-      // [REPLACE] 기존: chrome.runtime.sendMessage(...)
-      //           변경: sendMessageSafe(...)
+      // 변경: sendMessageSafe(...)
       const res = await sendMessageSafe({ type: 'RUN_COLLECT_AND_WRITE' });
 
       console.log('[GitCheck][content] ◀ response:', res);
 
       if (res?.ok && Array.isArray(res.summary)) {
-        lastSummary = res.summary;
+        lastSummary = res.summary; 
         lastPreviewDetail = res.previewDetail || {};
 
         chrome.storage.local.set({
