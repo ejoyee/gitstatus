@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="utf-8" />
+  <title>GitCheck 설정</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    /* 박스사이징 통일(오버플로 방지) */
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box
+    }
+
+    :root {
+      --bg: #FFC6B2;
+      --panel: #FFFFFF;
+      --accent: #FC6D26;
+      --accent-dark: #d4703a;
+      --text: #222;
+      --muted: #888;
+      --chip: #f4c9b4;
+    }
+
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: system-ui, AppleSDGothicNeo, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
+      color: var(--text)
+    }
+
+    body {
+      background: var(--bg)
+    }
+
+    .wrap {
+      width: 400px;
+      padding: 16px
+    }
+
+    .head {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px
+    }
+
+    .head img {
+      width: 28px;
+      height: 28px
+    }
+
+    .head h1 {
+      font-size: 20px;
+      margin: 0;
+      font-weight: 800
+    }
+
+    .card {
+      background: var(--panel);
+      border-radius: 15px;
+      padding: 12px 18px 16px;
+      box-shadow: 0 6px 18px rgba(0, 0, 0, .08);
+      overflow: hidden
+    }
+
+    .field {
+      margin: 12px 0
+    }
+
+    .field label {
+      display: block;
+      font-weight: 700;
+      margin: 0 0 6px
+    }
+
+    .hint {
+      font-size: 12px;
+      color: var(--muted);
+      margin-left: 6px
+    }
+
+    input[type="text"],
+    input[type="password"] {
+      width: 100%;
+      max-width: 100%;
+      padding: 12px;
+      border: 1px solid #e6c5b8;
+      border-radius: 10px;
+      outline: none;
+      background: #fff;
+      font-size: 14px;
+    }
+
+    input[type="text"]::placeholder {
+      color: #bbb
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding-top: 6px;
+      max-height: 120px;
+      overflow: auto
+    }
+
+    .chip {
+      background: var(--chip);
+      color: #542;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px
+    }
+
+    .chip button {
+      appearance: none;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      font-weight: 800;
+      color: #834
+    }
+
+    .btn {
+      width: 100%;
+      max-width: 100%;
+      border: none;
+      border-radius: 8px;
+      padding: 14px;
+      font-weight: 900;
+      color: #fff;
+      background: var(--accent);
+      cursor: pointer
+    }
+
+    .btn:hover {
+      background: var(--accent-dark);
+      color: #fff;
+    }
+
+    .btn-secondary {
+      background: #fff;
+      color: #a33;
+      border: 1px solid #e5b2a0
+    }
+
+    .footer {
+      display: flex;
+      gap: 10px;
+      margin-top: 12px
+    }
+
+    .status {
+      margin-top: 10px;
+      font-size: 13px
+    }
+
+    .ok {
+      color: #137333
+    }
+
+    .err {
+      color: #c5221f
+    }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+    <div class="head">
+      <img src="./assets/gitFox.png" alt="GitCheck" />
+      <h1>GitCheck 필수 설정</h1>
+    </div>
+
+    <div class="card">
+
+  <!-- ✅ [ADD] 기본 화면 섹션 래핑 -->
+  <section id="page-basic"> 
+    <div class="field">
+      <label>시트 작성 코드 URL</label>
+      <input id="appsScriptUrl" type="text" placeholder="https://script.google.com/macros/s/.../exec" />
+    </div>
+
+    <div class="field">
+      <label>시트 ID <span class="hint">/d/와 /edit 사이 문자열</span></label>
+      <input id="spreadsheetId" type="text" placeholder="1aH6yK...MCy3Jo" />
+    </div>
+
+    <div class="field">
+      <label>GitLab Token</label>
+      <input id="gitlabToken" type="password" placeholder="glpat-..." />
+    </div>
+
+    <div class="field">
+      <label>Repos</label>
+      <input id="repoInput" type="text" placeholder="/org/repo 입력 후 Enter" />
+      <div id="repoChips" class="chips"></div>
+    </div>
+
+    <!-- Students 버튼만 존재 -->
+    <div class="field">
+      <label>Students <span id="students-count" class="hint"></span></label>
+      <button id="btn-open-students" class="btn btn-secondary">교육생 이름 설정</button>
+    </div>
+
+    <div class="footer">
+      <button id="saveBtn" class="btn">설정 저장</button>
+      <button id="resetBtn" class="btn btn-secondary">초기화</button>
+    </div>
+
+    <div id="status" class="status"></div>
+  </section>
+  <!-- /#page-basic -->
+ 
+  <!-- ✅ [KEEP] 학생 매칭 섹션 (처음엔 display:none) -->
+  <section id="page-students" style="display:none">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <h3 style="margin:0">교육생 이름 설정 <span id="students-count-2" class="hint"></span></h3>
+      <div style="display:flex;gap:8px">
+        <button id="btn-back" class="btn btn-secondary" style="padding:8px 12px">이전으로</button>
+        <button id="btn-reload" class="btn btn-secondary" style="padding:8px 12px">다시 불러오기</button>
+        <button id="btn-save-students" class="btn" style="padding:8px 12px">이름 저장</button>
+      </div>
+    </div>
+    <div id="students-wrap"></div>
+  </section>
+
+</div>
+
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+
+</html>
