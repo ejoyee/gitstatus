@@ -291,12 +291,25 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           repo: c.repo || ''
         });
 
+        const maskEmail = (em) => {
+          const s = String(em || '');
+          const [id, host] = s.split('@');
+          if (!id || !host) return s.replace(/.(?=.{2})/g, '*');
+          return (id.slice(0, 2) + '***@' + host);
+        };
         // (선택) 팀 디버깅: 여전히 팀이 없으면 경고
         if (!team) {
+          // warn('team missing for', canonical, {
+          //   hasMemberKey: !!cfg.memberMap?.[canonical],
+          //   byName: c.author_name,
+          //   byEmail: (c.author_email || '').toLowerCase()
+          // });
+
+          // 실제 github에는
           warn('team missing for', canonical, {
             hasMemberKey: !!cfg.memberMap?.[canonical],
             byName: c.author_name,
-            byEmail: (c.author_email || '').toLowerCase()
+            byEmail: maskEmail(c.author_email)
           });
         }
       }
