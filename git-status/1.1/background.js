@@ -69,7 +69,7 @@ function getConfig() {
         memberMap: {},   // { "이름": {emails:[], names:["이름"]} } (선택)
         appsScriptUrl: '',
         sheet: { spreadsheetId: '', sheetName: '주간 Git 현황', headerRow: 6, nameCol: 3 },
-        days: 14,
+        days: 1, // 기본: 오늘만
         timezoneOffsetMinutes: 9 * 60,
         studentCache: null
       },
@@ -141,11 +141,23 @@ async function getBranches(projectId, cfg) {
 }
 
 async function collectCommits(projectId, cfg) {
-  const since = new Date(); since.setDate(since.getDate() - cfg.days);
-  const sinceDate = since.toISOString().split('T')[0];
+  const n = Math.max(1, Number(cfg.days || 1));
+
+  // KST 기준 하한(포함)
+  const localStart = new Date();
+  localStart.setHours(0, 0, 0, 0);               // 오늘 00:00 (로컬)
+  localStart.setDate(localStart.getDate() - (n - 1)); // N-1일 전 00:00
+
+  // KST 기준 상한(제외) = localStart + n일
+  const localEnd = new Date(localStart);
+  localEnd.setDate(localEnd.getDate() + n);
+
+  // 그대로 ISO로 보내면 UTC로 해석됨 (추가 보정 불필요)
+  const sinceIso = localStart.toISOString();
+  const untilIso = localEnd.toISOString();
 
   // 로그
-  log('collectCommits since', { projectId, sinceDate });
+  log('collectCommits window', { projectId, sinceIso, untilIso });
 
   const branches = await getBranches(projectId, cfg);
   const perPage = 100;
@@ -156,7 +168,8 @@ async function collectCommits(projectId, cfg) {
     while (true) {
       const url =
         `https://${cfg.gitlabDomain}/api/v4/projects/${projectId}/repository/commits?` +
-        `since=${sinceDate}T00:00:00Z&ref_name=${encodeURIComponent(branch)}&per_page=${perPage}&page=${page}`;
+        `since=${encodeURIComponent(sinceIso)}&until=${encodeURIComponent(untilIso)}&` +
+        `ref_name=${encodeURIComponent(branch)}&per_page=${perPage}&page=${page}`;
       const res = await fetch(url, { headers: { 'PRIVATE-TOKEN': cfg.gitlabToken, 'Accept': 'application/json' } });
       if (!res.ok) {
         warn('commits fetch failed', { projectId, branch, status: res.status, page });

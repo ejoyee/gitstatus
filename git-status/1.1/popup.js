@@ -84,6 +84,8 @@
     const appsScriptUrl = $("appsScriptUrl").value.trim();
     const spreadsheetId = $("spreadsheetId").value.trim();
     const gitlabToken = $("gitlabToken").value.trim();
+    let days = parseInt($("days").value, 10);
+    if (!Number.isFinite(days) || days < 1) days = 1; // 하한선 보정
 
     if (!appsScriptUrl.includes("script.google.com")) return setStatus("시트 작성 코드 URL을 확인하세요.", true);
     if (!spreadsheetId) return setStatus("시트 ID를 입력하세요.", true);
@@ -94,10 +96,11 @@
       appsScriptUrl,
       repos: state.repos,
       sheet: { spreadsheetId, sheetName: "주간 Git 현황", headerRow: 6, nameCol: 3 },
-      memberMap, // ✅ 함께 저장
+      memberMap,
+      days
     });
 
-    await chrome.storage.local.set({ gitlabToken });
+    await chrome.storage.local.set({ gitlabToken }); // (원래대로 유지: 동기화 원치 않으면 제거)
 
     setStatus("✅ 저장 완료! 팝업을 닫아도 설정은 유지됩니다.");
   }
@@ -108,12 +111,14 @@
       appsScriptUrl: "",
       repos: [],
       sheet: { spreadsheetId: "", sheetName: "주간 Git 현황", headerRow: 6, nameCol: 3 },
-      memberMap: {}
+      memberMap: {},
+      days: 1
     }, async (cfg) => {
       $("appsScriptUrl").value = cfg.appsScriptUrl || "";
       $("spreadsheetId").value = cfg.sheet?.spreadsheetId || "";
       state.repos = Array.isArray(cfg.repos) ? cfg.repos : [];
       memberMap = cfg.memberMap || {};
+      $("days").value = String(cfg.days ?? 1);
 
       Object.keys(memberMap).forEach(k => {
         const v = memberMap[k] ||= {};
