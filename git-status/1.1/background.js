@@ -76,6 +76,11 @@ function getConfig() {
       async (cfg) => {
         const loc = await chrome.storage.local.get({ gitlabToken: '' });
         if (loc.gitlabToken) cfg.gitlabToken = loc.gitlabToken;
+        if (!cfg.memberMap || !Object.keys(cfg.memberMap).length) {
+          if (loc.memberMap && Object.keys(loc.memberMap).length) {
+            cfg.memberMap = loc.memberMap; // 폴백
+          }
+        }
 
         // 로그
         log('getConfig loaded', {
@@ -141,23 +146,41 @@ async function getBranches(projectId, cfg) {
 }
 
 async function collectCommits(projectId, cfg) {
+  log('collectCommits ENTER', { projectId, days: cfg.days });
+
   const n = Math.max(1, Number(cfg.days || 1));
 
-  // KST 기준 하한(포함)
-  const localStart = new Date();
-  localStart.setHours(0, 0, 0, 0);               // 오늘 00:00 (로컬)
-  localStart.setDate(localStart.getDate() - (n - 1)); // N-1일 전 00:00
+  // ----- 정확한 KST 기준 경계 계산 -----
+  const offsetMin = Number(cfg.timezoneOffsetMinutes ?? 9 * 60); // 540분 = 9시간
+  const MS = 60 * 1000;
 
-  // KST 기준 상한(제외) = localStart + n일
-  const localEnd = new Date(localStart);
-  localEnd.setDate(localEnd.getDate() + n);
+  // UTC 기준으로 KST 자정(00:00)을 정확히 찾는 함수
+  const floorToTZMidnightUTC = (d, offsetMinutes) => {
+    const shifted = new Date(d.getTime() + offsetMinutes * MS); // KST 시계로 이동
+    shifted.setUTCHours(0, 0, 0, 0); // KST 시계 자정으로 내림
+    return new Date(shifted.getTime() - offsetMinutes * MS); // 다시 UTC 시각으로 복귀
+  };
 
-  // 그대로 ISO로 보내면 UTC로 해석됨 (추가 보정 불필요)
-  const sinceIso = localStart.toISOString();
-  const untilIso = localEnd.toISOString();
+  const now = new Date();
 
-  // 로그
-  log('collectCommits window', { projectId, sinceIso, untilIso });
+  // 시작 시각: 오늘 KST 자정 기준으로 (n-1)일 전
+  const sinceUTC = floorToTZMidnightUTC(now, offsetMin);
+  sinceUTC.setUTCDate(sinceUTC.getUTCDate() - (n - 1));
+
+  // 종료 시각: sinceUTC + n일 (배타 upper bound)
+  const untilUTC = new Date(sinceUTC.getTime());
+  untilUTC.setUTCDate(untilUTC.getUTCDate() + n);
+
+  const sinceIso = sinceUTC.toISOString();
+  const untilIso = untilUTC.toISOString();
+
+  log("collectCommits window (KST-day exact)", {
+    projectId,
+    days: n,
+    tzOffsetMin: offsetMin,
+    sinceIso,
+    untilIso,
+  });
 
   const branches = await getBranches(projectId, cfg);
   const perPage = 100;
@@ -176,26 +199,21 @@ async function collectCommits(projectId, cfg) {
         break;
       }
       const commits = await res.json();
-
-      // 로그
-      log('commits page', { branch, page, count: commits.length });
-
       if (!commits.length) break;
 
-      commits
-        .filter(c => {
-          const t = String(c.title || '');
-          const looksMerge = /^merge\b/i.test(t);
-          const multiParent = Array.isArray(c.parent_ids) && c.parent_ids.length > 1;
-          return !(looksMerge || multiParent);
-        })
-        .forEach(c => all.push({
+      commits.forEach(c => {
+        const multiParent = Array.isArray(c.parent_ids) && c.parent_ids.length > 1;
+        if (multiParent) return; // 머지커밋 제외
+        all.push({
           id: c.id,
           title: c.title,
           author_name: c.author_name,
           author_email: c.author_email,
-          created_at: c.created_at
-        }));
+          created_at: c.created_at,
+          committed_date: c.committed_date,
+          authored_date: c.authored_date,
+        });
+      });
 
       if (commits.length < perPage) break;
       page++;
@@ -209,6 +227,7 @@ async function collectCommits(projectId, cfg) {
   log('collectCommits done', { projectId, total: all.length, deduped: deduped.length });
   return deduped;
 }
+
 
 // ===== 집계 =====
 function aggregateByDateAndMember(commits, cfg) {
@@ -224,11 +243,15 @@ function aggregateByDateAndMember(commits, cfg) {
     emailMapSize: aliasIdx.emailIdx?.size || 0
   });
 
+  const offsetMs = (cfg.timezoneOffsetMinutes ?? 9 * 60) * 60 * 1000;
 
   for (const c of commits) {
-    const dt = new Date(c.created_at);
-    dt.setMinutes(dt.getMinutes() + cfg.timezoneOffsetMinutes);
-    const day = dt.toISOString().split('T')[0];
+    const rawDateStr = c.committed_date || c.created_at;
+    const dt = new Date(rawDateStr);
+
+    // ✅ UTC → KST 변환 후 날짜 부분 추출
+    const kst = new Date(dt.getTime() + offsetMs); // ✅ UTC→KST
+    const day = kst.toISOString().split('T')[0];   // yyyy-mm-dd (KST 기준)
 
     const canonical = canonicalizeName(c.author_name, c.author_email, aliasIdx);
     (counts[canonical] ??= {});
@@ -240,6 +263,7 @@ function aggregateByDateAndMember(commits, cfg) {
     memberCount: names.length,
     sample: names.slice(0, 5).map(n => ({ name: n, days: Object.keys(counts[n]).length }))
   });
+
   return counts;
 }
 
@@ -293,6 +317,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
       const counts = aggregateByDateAndMember(uniqueCommits, cfg);
 
+      log('sample per-person counts', Object.entries(counts).slice(0, 5));
+
       // === 사람별 원본 커밋 요약(사람 내부 중복 제거 + 날짜 정렬 + 팀정보) ===
       const aliasIdx = buildAliasIndex(cfg.memberMap || {}, cfg.studentCache?.officialNames || []);
       const perPerson = {}; // { canonical: { team:'', ids:Set, list:[{id,title,date,repo}] } }
@@ -313,18 +339,18 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         perPerson[canonical].list.push({
           id,
           title: c.title,
-          date: (c.created_at || '').slice(0, 10),
+          date: (c.committed_date || c.created_at || '').slice(0, 10),
           repo: c.repo || ''
         });
 
         // (선택) 팀 디버깅: 여전히 팀이 없으면 경고
-        if (!team) {
-          warn('team missing for', canonical, {
-            hasMemberKey: !!cfg.memberMap?.[canonical],
-            byName: c.author_name,
-            byEmail: (c.author_email || '').toLowerCase()
-          });
-        }
+        // if (!team) {
+        //   warn('team missing for', canonical, {
+        //     hasMemberKey: !!cfg.memberMap?.[canonical],
+        //     byName: c.author_name,
+        //     byEmail: (c.author_email || '').toLowerCase()
+        //   });
+        // }
       }
 
       // 날짜 오름차순 정렬 (필요하면 b-a로 내림차순 바꿔)

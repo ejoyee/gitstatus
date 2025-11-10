@@ -19,7 +19,7 @@
           repos.value = (v.repos || []).join(",");
           appsScriptUrl.value = v.appsScriptUrl || "";
           spreadsheetId.value = v.sheet?.spreadsheetId || "";
-          sheetName.value = v.sheet?.sheetName || "주간 Git 현황";
+          sheetName.value = v.sheet?.sheetName || "Git 평가 내용";
           headerRow.value = v.sheet?.headerRow || 6;
           nameCol.value = v.sheet?.nameCol || 2;
           memberMap.value = JSON.stringify(v.memberMap || {}, null, 2);

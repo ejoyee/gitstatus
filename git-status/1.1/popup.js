@@ -19,8 +19,8 @@
   // 캐시 읽기
   async function loadStudentCache() {
     const st = await chrome.storage.sync.get({ [STUDENT_CACHE_KEY]: null });
-    const lm = await chrome.storage.local.get({ memberMap: {} });
-    memberMap = lm.memberMap || {};
+    const sm = await chrome.storage.sync.get({ memberMap: {} });
+    memberMap = sm.memberMap || {};
 
     const cache = st[STUDENT_CACHE_KEY];
     if (cache && Array.isArray(cache.officialNames) && cache.officialNames.length) {
@@ -36,7 +36,10 @@
     await chrome.storage.sync.set({
       [STUDENT_CACHE_KEY]: { officialNames, teamsByName: window._teamsByName || {}, fetchedAt: Date.now() }
     });
-    await chrome.storage.local.set({ memberMap });
+    await Promise.all([
+      chrome.storage.local.set({ memberMap }),
+      chrome.storage.sync.set({ memberMap }),
+    ]);
   }
 
 
@@ -183,7 +186,7 @@
       body: JSON.stringify({
         mode: "listNames",             // ★ 기존 모드명 그대로 사용해도 OK (Apps Script에서 함께 리턴)
         spreadsheetId,
-        sheetName: "주간 Git 현황",
+        sheetName: "Git 평가 내용",
         headerSpec: { monthRow: 5, dayRow: 6, weekdayRow: 7, startDateCol: 6 }
       })
     });
@@ -412,7 +415,10 @@
 
     // ✅ 학생 매핑 저장(이름 저장 버튼) — 바로 memberMap만 저장
     $("btn-save-students").addEventListener("click", () => {
-      chrome.storage.sync.set({ memberMap }, () => {
+      Promise.all([
+        chrome.storage.sync.set({ memberMap }),
+        chrome.storage.local.set({ memberMap }),
+      ]).then(() => {
         setStatus("학생 이름 매핑 저장 완료!");
         showPage("basic");
       });
