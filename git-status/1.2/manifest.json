@@ -1,0 +1,39 @@
+{
+    "manifest_version": 3,
+    "name": "주간 Git 현황 체크",
+    "version": "1.1.0",
+    "description": "구글시트(주간 Git 현황)에서 버튼 클릭 시 GitLab 커밋을 집계해 시트를 채웁니다.",
+    "permissions": [
+        "storage"
+    ],
+    "host_permissions": [
+        "https://lab.ssafy.com/*",
+        "https://*.lab.ssafy.com/*",
+        "https://gitlab.com/*",
+        "https://*.gitlab.com/*",
+        "https://script.google.com/*",
+        "https://script.googleusercontent.com/*",
+        "https://docs.google.com/*",
+        "https://docs.googleusercontent.com/*"
+    ],
+    "background": { "service_worker": "background.js", "type": "module" },
+    "content_scripts": [
+        {
+            "matches": [
+                "https://docs.google.com/spreadsheets/*"
+            ],
+            "js": [
+                "content.js"
+            ],
+            "run_at": "document_end"
+        }
+    ],
+    "action": {
+        "default_popup": "popup.html",
+        "default_icon": "icon.png"
+    },
+    "options_page": "options.html",
+    "icons": {
+        "128": "icon.png"
+    }
+}
